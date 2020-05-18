@@ -25,9 +25,12 @@ F[15] = A[0] + A[1] + A[2] + A[3] + A[4] + A[5] + A[6] + A[7] + A[8] + A[9] + A[
 */
 
 #include <cstdio>
+#include <vector>
+using namespace std;
 
 /**************************** BEGIN OF LIBRARY CODE ****************************/
 #include <cstdlib>
+
 #define UNSET_RIGHTMOST_BIT(n)  (n &= n - 1)
 
 // sum the first n elements of original array (0 to n-1)
@@ -52,21 +55,14 @@ void fenwick_inc_point(T* f, int f_size, int idx, T val) {
 
 // Point Update, Range Query
 template <typename T>
-class PURQFenwick {
-  T *f;
-  int f_size;
-
-public:
-  PURQFenwick(int size): f_size(size), f{ (T*)calloc(size, sizeof(T)) } {}
-  ~PURQFenwick() { free(f); }
-
-  // sum of [0, n) (not including n)
-  T sum(int n) { return fenwick_prefix_sum(f, n); }
-
-  // sum of [begin, end) (not including end)
-  T sum(int begin, int end) { return fenwick_range_sum(f, begin, end); }
-
-  void update(int idx, T val) { fenwick_inc_point(f, f_size, idx, val); }
+struct Fenwick {
+  vector<T> ft;
+  Fenwick(int sz): ft(sz, 0) {}
+  T sum(int n) { T sum = 0; for (; n > 0; n &= n - 1) sum += ft[n - 1]; return sum; } // sum of [0, n) (not including n)
+  T sum(int begin, int end) { return sum(end) - sum(begin); } // sum of [begin, end) (not including end)
+  void inc(int idx, T val) { for (; idx < ft.size(); idx |= (idx + 1)) ft[idx] += val; }
+  T at(int idx) { return sum(idx, idx + 1); }
+  void set(int idx, T val) { inc(idx, val - at(idx)); }
 };
 
 // Range Update, Point Query
@@ -75,14 +71,13 @@ public:
 // 若我們想像有個陣列 U[i] 存 Update([begin, ∞), val)，則 A[i] 就相當於 U[0]+...+U[i]
 // 因此用 PURQFenwick 來存 U, 要算 A[i] 就是 prefix_sum(i + 1).
 template <typename T>
-class RUPQFenwick {
-  PURQFenwick<T> f;
-public:
-  RUPQFenwick(int size): f{ PURQFenwick<T>(size) } {}
-  T at(int idx) { return f.sum(idx + 1); } 
-  void update(int begin, int end, T val) {
-    f.update(begin, val);
-    f.update(end, -val);
+struct RUPQFenwick {
+  Fenwick<T> ft;
+  RUPQFenwick(int sz): ft(sz) {}
+  T at(int idx) { return ft.sum(idx + 1); }
+  void inc(int begin, int end, T val) {
+    ft.inc(begin, val);
+    ft.inc(end, -val);
   }
 };
 
@@ -92,12 +87,12 @@ public:
   一個 Update([begin, end), val), 對於 P[k] 有三種狀況：
   1. k <= begin,        |------sum---------k---(update)--
      這個 update 不影響 P[k], 貢獻為 0
-  
+
   2. k > end,           |--sum---(update)--k-------------
      這個 update 對 P[k] 貢獻 (end - begin) * val,
      可以拆解為 Update([begin, ∞), -val * begin), Update([end, ∞), val * end)
 
-  3. begin < k <= end,  |--sum----------(--k-update)----- 
+  3. begin < k <= end,  |--sum----------(--k-update)-----
      這個 update 對 P[k] 貢獻 (k - begin) * val,
      使用 case (2) 的拆解，發現 Update([end, ∞), val * end) 對於 P[k] 沒貢獻，
      因此需要修正量 k * val
@@ -108,20 +103,18 @@ public:
   P[k] = U[0]+...+U[k - 1]+ k * V[i]
 */
 template <typename T>
-class Fenwick {
-  PURQFenwick<T> fu;
+struct FenwickPro {
+  Fenwick<T> fu;
   RUPQFenwick<T> fv;
-public:
-  Fenwick(int size): fu{ PURQFenwick<T>(size) }, fv{ RUPQFenwick<T>(size) } {}
-
-  void update(int begin, int end, T val) {
-    fu.update(begin, -val * begin);
-    fu.update(end, val * end);
-    fv.update(begin, end, val);
+  FenwickPro(int sz): fu(sz), fv(sz) {}
+  void inc(int begin, int end, T val) { // [begin, end) += val
+    fu.inc(begin, -val * begin);
+    fu.inc(end, val * end);
+    fv.inc(begin, end, val);
   }
-
-  T sum(int k) { return fu.sum(k) + k * fv.at(k - 1); }
-  T sum(int begin, int end) { return sum(end) - sum(begin); }
+  void inc(int idx, T val) { inc(idx, idx+1, val); }
+  T sum(int k) { return fu.sum(k) + k * fv.at(k - 1); } // sum of [0, k)
+  T sum(int begin, int end) { return sum(end) - sum(begin); } // sum of [begin, end)
 };
 
 /**************************** END OF LIBRARY CODE ****************************/
@@ -163,17 +156,17 @@ int main() {
     }
   }
   puts("* Basic function passed.");
-  
-  PURQFenwick<long long> purq(N);
-  for (int i = 0; i < N; i++) purq.update(i, a[i]);
+
+  Fenwick<long long> purq(N);
+  for (int i = 0; i < N; i++) purq.inc(i, a[i]);
 
   for (int i = 0; i <= N; i++) {
     if (brute_force_sum(a, 0, i) != purq.sum(i)) {
-      fprintf(stderr, "PURQFenwick,sum(%d) failed!\n", i);
+      fprintf(stderr, "Fenwick,sum(%d) failed!\n", i);
       abort();
     }
   }
-  puts("* PURQFenwick.sum(n) passed.");
+  puts("* Fenwick.sum(n) passed.");
 
   for (int b = 0; b < N; b++) {
     for (int e = b; e <= N; e++) {
@@ -183,7 +176,7 @@ int main() {
       }
     }
   }
-  puts("* PURQFenwick.sum(b, e) passed.");
+  puts("* Fenwick.sum(b, e) passed.");
 
   RUPQFenwick<long long> rupq(N);
   for (int i = 0; i < N; i++) a[i] = 0;
@@ -192,7 +185,7 @@ int main() {
     int idx_b = idx_a + (rand() % (N + 1 - idx_a));
     long long v = (rand() % 98765) * (rand() % 2 ? 1 : -1);
     for (int i = idx_a; i < idx_b; i++) a[i] += v;
-    rupq.update(idx_a, idx_b, v);
+    rupq.inc(idx_a, idx_b, v);
   }
   for (int i = 0; i < N; i++) {
     if (a[i] != rupq.at(i)) {
@@ -203,15 +196,15 @@ int main() {
   puts("* RUPQFenwick passed.");
 
   for (int repeat = 0; repeat < 50; repeat++) {
-    Fenwick<long long> rurq(N);
+    FenwickPro<long long> rurq(N);
     for (int i = 0; i < N; i++) a[i] = 0;
-  
+
     for (int t = 0; t < 500; t++) {
       int idx_a = rand() % N;
       int idx_b = idx_a + (rand() % (N + 1 - idx_a));
       long long v = (rand() % 98765) * (rand() % 2 ? 1 : -1);
       for (int i = idx_a; i < idx_b; i++) a[i] += v;
-      rurq.update(idx_a, idx_b, v);
+      rurq.inc(idx_a, idx_b, v);
     }
     for (int i = 0; i < N; i++) {
       for (int j = i; j <= N; j++) {
@@ -225,5 +218,5 @@ int main() {
       }
     }
   }
-  puts("* Fenwick passed.");
+  puts("* FenwickPro passed.");
  }
